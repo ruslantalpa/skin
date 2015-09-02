@@ -16,6 +16,7 @@ import qualified Data.ByteString.Char8 as C
 import qualified Data.Text as T
 import qualified Data.ByteString.Internal as B
 
+------------ Hardcoded DB schema ----------------
 clientsFk = ForeignKey "clients" "id"
 projectsFk = ForeignKey "projects" "id"
 usersFk = ForeignKey "users" "id"
@@ -54,7 +55,7 @@ columns = [
   usersIdColumn, usersNameColumn, tasksIdColumn, tasksNameColumn, tasksProjectIdColumn,
   upUserIdColumn, upProjectIdColumn, utUserIdColumn, utTaskIdColumn
   ]
-
+------------ Hardcoded DB schema end ----------------
 
 application httpRequest respond = respond $ responseLBS status200 [("Content-Type", "text/plain")] $ CL.pack queryStr
     where

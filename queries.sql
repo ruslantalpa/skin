@@ -1,3 +1,4 @@
+----- SCHEMA ----
 CREATE TABLE clients(
     id INT PRIMARY KEY     NOT NULL,
     name           TEXT    NOT NULL
@@ -26,6 +27,8 @@ CREATE TABLE users_projects(
     project_id      INT     REFERENCES projects(id),
     CONSTRAINT project_user PRIMARY KEY (project_id, user_id)
 );
+
+------- SAMPLE DATA -----
 INSERT INTO clients VALUES (1, 'Microsoft'),(2, 'Apple');
 INSERT INTO projects VALUES (1,'Windows 7', 1),(2,'Windows 10', 1),(3,'IOS', 2),(4,'OSX', 2);
 INSERT INTO tasks VALUES (1,'Design w7',1),(2,'Code w7',1),(3,'Design w10',2),(4,'Code w10',2),(5,'Design IOS',3),(6,'Code IOS',3),(7,'Design OSX',4),(8,'Code OSX',4);
@@ -34,6 +37,7 @@ INSERT INTO users_projects VALUES(1,1),(1,2),(2,3),(2,4),(3,1),(3,3);
 INSERT INTO users_tasks VALUES(1,1),(1,2),(1,3),(1,4),(2,5),(2,6),(2,7),(2,8),(3,1),(3,5);
 
 
+--------- example queris that can return tree structures -------------
 SELECT
     pg_catalog.count(t),
   array_to_json(array_agg(row_to_json(t)))::CHARACTER VARYING AS json
