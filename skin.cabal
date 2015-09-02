@@ -3,12 +3,12 @@
 
 name:                skin
 version:             0.1.0.0
-synopsis:            GraphQL and Rest interface to a database
+synopsis:            Proof of concept rest interface to a database
 -- description:
 license:             AllRightsReserved
 license-file:        LICENSE
 author:              Ruslan Talpa
-maintainer:          ruslan@paymo.biz
+maintainer:          ruslan.talpa@gmail.com
 -- copyright:
 category:            Web
 build-type:          Simple
