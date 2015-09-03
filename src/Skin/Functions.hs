@@ -15,23 +15,42 @@ import Data.Tree
 import GHC.Exts (groupWith)
 import Control.Applicative
 import Data.List (intercalate, intersperse, nub, find, delete)
-import Network.URI
+--import Network.URI
 import qualified Data.ByteString.Char8 as B
 import Data.Maybe
-import qualified Network.HTTP.Types.URI as URI
+--import qualified Network.HTTP.Types.URI as URI
 import qualified Data.Text as T
 
-buildRequest :: String -> String -> Request
-buildRequest rootTable includeStr =
-    foldr insertField rootNode splitedInclude
+buildRequest :: String -> String -> [(String, String)] -> Request
+buildRequest rootTable includeStr whereFilters =
+    foldr insertFilter (foldr insertField rootNode splitedInclude) conditionEntries
     where
         rootNode = Node (RequestNode rootTable [] []) []
         splitedInclude = map (T.splitOn ".") $ map T.strip $ T.splitOn "," $ T.pack includeStr
+        conditionEntries = map toConditionEntry whereFilters
+        toConditionEntry (fldPath, opAndValue) = ((path, field), strToOp op, strToVal val)
+            where
+                op:rest = map T.unpack $ T.split (=='.') $ T.pack opAndValue
+                val = intercalate "." rest
+                item = map T.unpack $ T.splitOn "." $ T.pack fldPath
+                path = init item
+                field = last item
+                strToOp str = case str of
+                         "eq" -> OpEQ
+                         "gt" -> OpGT
+                         "lt" -> OpLT
+                strToVal str =
+                    if length readint == 1 && "" == ris
+                    then VInt i
+                    else VString str
+                    where
+                        readint = reads str :: [(Int, String)]
+                        (i, ris) = head readint
         insertField item node = addField node path field
             where
                 path = map T.unpack $ init item
                 field = T.unpack $ last item
-
+        insertFilter ((path, field), op, val) node = addFilter node path (Filter field op val)
 
 addField :: Request -> Path -> Field -> Request
 addField (Node rn@(RequestNode {fields=flds}) forest) [] field = Node (rn {fields=field:flds}) forest
@@ -43,6 +62,21 @@ addField (Node rn forest) path field = Node rn (addField targetNode remainingPat
                   Nothing -> (Node (RequestNode name [] []) [],forest)
                   Just node -> (node, delete node forest)
               where maybeNode = find ((name==).nodeName.rootLabel) forest
+
+addFilter :: Request -> Path -> Filter -> Request
+addFilter (Node rn@(RequestNode {filters=flts}) forest) [] flt = Node (rn {filters=flt:flts}) forest
+addFilter (Node rn forest) path flt =
+    case targetNode of
+        Nothing -> Node rn forest
+        Just tn -> Node rn (addFilter tn remainingPath flt:restForest)
+    where
+        targetNodeName:remainingPath = path
+        (targetNode,restForest) = splitForest targetNodeName forest
+        splitForest name forest =
+            case maybeNode of
+                Nothing -> (Nothing,forest)
+                Just node -> (Just node, delete node forest)
+            where maybeNode = find ((name==).nodeName.rootLabel) forest
 
 requestNodeToQuery ::[Table] -> [Column] -> RequestNode -> Maybe Query
 requestNodeToQuery tables columns (RequestNode name fields filters) =
