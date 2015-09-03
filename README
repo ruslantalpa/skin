@@ -4,5 +4,10 @@
 4. open one of the urls in the browser, the output should be a SQL query
     http://localhost:3000/projects?id=lt.4&include=id,name,tasks.id,tasks.name,clients.id,clients.name,users.id,users.name
     http://localhost:3000/projects?id=lt.4&tasks.id=eq.1&include=id,name,tasks.id,tasks.name
-    http://localhost:3000/tasks?id=eq.1&include=id,name,projects.id,projects.name,projects.tasks.id,projects.tasks.id
+    http://localhost:3000/clients?id=eq.1&include=id,name,projects.id,projects.name,projects.tasks.id,projects.tasks.id
 5. run the SQL agains the test database
+
+TODO: chhange the format of include to the following
+http://localhost:3000/projects?id=lt.4&include=id,name,tasks(id,name),clients(id,name),users(id,name)
+http://localhost:3000/projects?id=lt.4&tasks.id=eq.1&include=id,name,tasks(id,name)
+http://localhost:3000/clients?id=eq.1&include=id,name,projects(id,name,tasks(id,name))
