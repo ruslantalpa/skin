@@ -37,5 +37,5 @@ data Table = Table {tblName::String} deriving (Show)
 data Relation = Parent Column | Child Column | Many Column Column | Root deriving (Show, Eq) --trebuie sa contina toate datele pentru a face legatura
 type RelationEntry = (String, String, String, Relation)
 data Condition = Condition {conColumn::Column, conOperator::Operator, conValue::Value} deriving (Show)
-data Query = Select {qMainTable::Table, qSelect::[Column], qFrom::[Table], qWhere::[Condition], qRelation::Maybe Relation} deriving (Show)
+data Query = Select {qMainTable::Table, qSelect::[Column], qJoinTables::[Table], qWhere::[Condition], qRelation::Maybe Relation} deriving (Show)
 type DbRequest = Tree Query
