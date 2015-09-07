@@ -1,6 +1,6 @@
 1. execute schema.sql in a test database
-2. cabal build
-3. cabal run
+2. stack build
+3. stack exec skin
 4. open one of the urls in the browser, the output should be a SQL query
     http://localhost:3000/projects?id=lt.4&include=id,name,tasks(id,name),clients(id,name),users(id,name)
     http://localhost:3000/projects?id=lt.4&tasks.id=eq.1&include=id,name,tasks(id,name)

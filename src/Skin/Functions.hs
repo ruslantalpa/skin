@@ -3,7 +3,7 @@ module Skin.Functions
 ( dbRequestToQuery
 , requestNodeToQuery
 , addJoinConditions
-, buildRelations
+--, buildRelations
 , addRelations
 --, addField
 , buildRequest
@@ -14,7 +14,7 @@ import Skin.Types
 import Skin.Parsers
 import Data.Tree
 import Data.Foldable
-import GHC.Exts (groupWith)
+
 import Control.Applicative
 import Data.List (intercalate, intersperse, nub, find, delete)
 import qualified Data.ByteString.Char8 as B
@@ -60,7 +60,7 @@ addFilter (Node rn forest) path flt =
 
 requestNodeToQuery ::[Table] -> [Column] -> RequestNode -> Maybe Query
 requestNodeToQuery tables columns (RequestNode name fields filters) =
-    Query <$> mainTable <*> select <*> from <*> qwhere <*> rel
+    Select <$> mainTable <*> select <*> from <*> qwhere <*> rel
     where mainTable = find ((name==).tblName) tables
           maybeColumns = map (\f->find (\c->colTable c == name && colName c == f) columns) fields
           select = if all isJust maybeColumns then pure (catMaybes maybeColumns) else Nothing
@@ -74,10 +74,10 @@ requestNodeToQuery tables columns (RequestNode name fields filters) =
               where column = find (\c->colTable c == table && colName c == fld) columns
 
 addRelations :: [RelationEntry] -> Maybe (Tree Query) -> Tree Query -> Tree Query
-addRelations allRelations parentNode node@(Node query@(Query {qMainTable=table}) forest) =
+addRelations allRelations parentNode node@(Node query@(Select {qMainTable=table}) forest) =
     case parentNode of
         Nothing -> Node query {qRelation=Just Root} updatedForest
-        (Just Node{rootLabel=Query{qMainTable=parentTable}}) -> Node query {qRelation=rel} updatedForest
+        (Just Node{rootLabel=Select{qMainTable=parentTable}}) -> Node query {qRelation=rel} updatedForest
             where
                 rel = findRelation allRelations (tblName table) (tblName parentTable)
     where
@@ -86,24 +86,8 @@ addRelations allRelations parentNode node@(Node query@(Query {qMainTable=table})
         findRelation relations t1 t2 = getRelation <$> find (\(f,s,rs,r)->t1==f&&t2==s) relations
             where getRelation (_,_,_,r) = r
 
-buildRelations :: [Column] -> [RelationEntry]
-buildRelations columns = sRel ++ mRel
-    where sRel = simpleRelations columns
-          mRel = linkRelations sRel
-
-          linkRelations :: [RelationEntry] -> [RelationEntry]
-          linkRelations relations = concatMap link2Relation links
-                where links = filter (\g ->length g == 2 && all (\(f,s,rs,r)->rs=="child") g) $ groupWith (\(f,s,rs,r)->f) relations
-                      link2Relation link = [(t1,t2,"many", Many r1 r2),(t2,t1,"many", Many r1 r2)]
-                          where linktbl = head $ map (\(f,s,rs,r)->f) link
-                                [(t1,Child r1),(t2,Child r2)] = map (\(f,s,rs,r)->(s,r)) link
-
-          simpleRelations :: [Column]->[RelationEntry]
-          simpleRelations = concatMap (\column@(Column {colTable=table, colFk=Just (ForeignKey {fkTable=fTable})})->[(table, fTable, "child", Child column),(fTable, table, "parent", Parent column)])
-                            . filter (isJust.colFk)
-
 addJoinConditions :: Tree Query -> Maybe (Tree Query)
-addJoinConditions (Node query@(Query{qMainTable=table, qFrom=from, qWhere=conditions, qRelation=relation}) forest) =
+addJoinConditions (Node query@(Select{qMainTable=table, qFrom=from, qWhere=conditions, qRelation=relation}) forest) =
     case relation of
         Nothing -> empty -- blow up
         Just Root -> Node <$> pure updatedQuery <*> updatedForest
@@ -121,30 +105,36 @@ addJoinConditions (Node query@(Query{qMainTable=table, qFrom=from, qWhere=condit
         parentJoinConditions = map (getJoinCondition.snd) parents
         parentTables = map fst parents
         parents = mapMaybe (getParents.rootLabel) forest
-        getParents q@(Query{qRelation=rel@(Just (Parent relationColumn))}) = Just (qMainTable q, relationColumn)
+        getParents q@(Select{qRelation=rel@(Just (Parent relationColumn))}) = Just (qMainTable q, relationColumn)
         getParents _ = Nothing
         getJoinCondition relationColumn = Condition relationColumn OpEQ (VForeignKey ((fromJust.colFk) relationColumn))
 
 dbRequestToQuery :: DbRequest -> String
-dbRequestToQuery (Node (Query mainTable columns tables conditions relation) forest) =
+dbRequestToQuery (Node (Select mainTable columns tables conditions relation) forest) =
     unwords [
+        if relation == Just Root
+        then "SELECT pg_catalog.count(t),array_to_json(array_agg(row_to_json(t)))::CHARACTER VARYING AS json FROM ("
+        else "",
         withsStr,
         "\nSELECT", intercalate ", " (map colToStr columns ++ selects),
         "\nFROM", intercalate ", " (tblName mainTable:map tblName tables),
-        --"\nWHERE", intercalate " AND " ("1=1":map conditionToStr conditions)
-        whereStr
+        whereStr,
+        if relation == Just Root
+        then ") t;"
+        else ""
+
     ]
     where withsStr = if null withs then "" else "WITH " ++ intercalate ", " withs
           whereStr = if null conditions then "" else "WHERE " ++ intercalate " AND " ( map conditionToStr conditions )
           (withs, selects) = foldr getQueryParts ([],[]) forest
-          getQueryParts (Node query@(Query{qMainTable=table, qRelation=(Just (Child _))}) forest) (w,s) = (w,sel:s)
+          getQueryParts (Node query@(Select{qMainTable=table, qRelation=(Just (Child _))}) forest) (w,s) = (w,sel:s)
             where name = tblName table
                   sel = "(SELECT array_to_json(array_agg(row_to_json("++name++"))) FROM (" ++ dbRequestToQuery (Node query forest) ++ ") "++name++" ) AS "++name
-          getQueryParts (Node query@(Query{qMainTable=table, qRelation=(Just (Parent _))}) forest) (w,s) = (wit:w,sel:s)
+          getQueryParts (Node query@(Select{qMainTable=table, qRelation=(Just (Parent _))}) forest) (w,s) = (wit:w,sel:s)
             where name = tblName table
                   sel = "row_to_json("++name++".*) AS "++name --TODO must be singular
                   wit = name ++ " AS ( " ++ dbRequestToQuery (Node query forest) ++ " )"
-          getQueryParts (Node query@(Query{qMainTable=table, qRelation=(Just (Many _ _))}) forest) (w,s) = (w,sel:s)
+          getQueryParts (Node query@(Select{qMainTable=table, qRelation=(Just (Many _ _))}) forest) (w,s) = (w,sel:s)
             where name = tblName table
                   sel = "(SELECT array_to_json(array_agg(row_to_json("++name++"))) FROM (" ++ dbRequestToQuery (Node query forest) ++ ") "++name++" ) AS "++name
 
@@ -159,5 +149,5 @@ conditionToStr (Condition col op val) = colToStr col ++ opToStr op ++ valToStr v
             OpLT -> "<"
           valToStr val = case val of
             VInt i -> show i
-            VString s -> "\"" ++ s ++ "\""
+            VString s -> "\"" ++ s ++ "\"" -- TODO sql injection prone
             VForeignKey (ForeignKey table column) -> table ++ "." ++ column

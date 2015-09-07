@@ -32,10 +32,10 @@ data Filter = Filter {field::Field, operator::Operator, value::Value} deriving (
 
 -- Db Types
 data ForeignKey = ForeignKey {fkTable::String, fkColumn::String} deriving (Show, Eq)
-data Column = Column {colTable:: String, colName::String, colFk::Maybe ForeignKey} deriving (Show)
+data Column = Column {colTable:: String, colName::String, colFk::Maybe ForeignKey} deriving (Show, Eq)
 data Table = Table {tblName::String} deriving (Show)
-data Relation = Parent Column | Child Column | Many Column Column | Root deriving (Show) --trebuie sa contina toate datele pentru a face legatura
+data Relation = Parent Column | Child Column | Many Column Column | Root deriving (Show, Eq) --trebuie sa contina toate datele pentru a face legatura
 type RelationEntry = (String, String, String, Relation)
 data Condition = Condition {conColumn::Column, conOperator::Operator, conValue::Value} deriving (Show)
-data Query = Query {qMainTable::Table, qSelect::[Column], qFrom::[Table], qWhere::[Condition], qRelation::Maybe Relation} deriving (Show)
+data Query = Select {qMainTable::Table, qSelect::[Column], qFrom::[Table], qWhere::[Condition], qRelation::Maybe Relation} deriving (Show)
 type DbRequest = Tree Query

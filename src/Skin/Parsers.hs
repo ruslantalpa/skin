@@ -14,9 +14,6 @@ ws :: Parser String
 ws = many (oneOf " \t")
 
 lexeme p = ws *> p <* ws
---data RequestNode = RequestNode {nodeName::String, fields::[Field], filters::[Filter]} deriving (Show, Eq)
-pFieldForest :: Parser [Tree String]
-pFieldForest = pFieldTree `sepBy` (lexeme $ char ',')
 
 pTreePath :: Parser ([String],String)
 pTreePath = do
@@ -33,6 +30,8 @@ pRequestInclude rootNodeName = do
                 [] -> Node (rNode {fields=fldName:fields rNode}) rForest
                 _  -> Node rNode (foldr treeEntry (Node (RequestNode fldName [] []) []) fldForest:rForest)
 
+pFieldForest :: Parser [Tree String]
+pFieldForest = pFieldTree `sepBy` (lexeme $ char ',')
 
 pFieldTree :: Parser (Tree Field)
 pFieldTree =

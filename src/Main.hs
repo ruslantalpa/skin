@@ -23,10 +23,10 @@ application httpRequest respond = respond $ Wai.responseLBS status200 [("Content
         queryStr = fromMaybe "Invalid request" query
         query = dbRequestToQuery <$> dbRequest
         dbRequest = addJoinConditions
-                =<< (return.addRelations allRelations Nothing)
+                =<< (return.addRelations getRelations Nothing)
                 =<< eitherToMaybe (traverse <$> pure (requestNodeToQuery tables columns) <*> request)
             where
-                allRelations = buildRelations columns
+                --allRelations = buildRelations columns
                 eitherToMaybe :: Either b (Maybe a) -> Maybe a
                 eitherToMaybe = either (const Nothing) id
         request = buildRequest table include whereS
