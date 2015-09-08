@@ -1,18 +1,26 @@
+{-# LANGUAGE QuasiQuotes, OverloadedStrings, TypeSynonymInstances,
+             MultiParamTypeClasses, ScopedTypeVariables,
+             FlexibleContexts #-}
+
 module Skin.Structure
 (
-  getColumns
-, getTables
-, getRelations
+--   getColumns
+-- , getTables
+  columns
+, tables
+, buildRelations
 )
 where
 
+import qualified Hasql as H
+import qualified Hasql.Postgres as P
+import qualified Data.Map as Map
+import Data.String.Conversions (cs)
 import Skin.Types
 import Data.Maybe
 import GHC.Exts (groupWith)
+import Data.Text hiding (foldl, map, zipWith, concat, concatMap, filter, length, head, all)
 
-getColumns = columns
-getTables = tables
-getRelations = buildRelations getColumns
 
 buildRelations :: [Column] -> [RelationEntry]
 buildRelations columns = sRel ++ mRel
@@ -30,43 +38,105 @@ buildRelations columns = sRel ++ mRel
           simpleRelations = concatMap (\column@(Column {colTable=table, colFk=Just (ForeignKey {fkTable=fTable})})->[(table, fTable, "child", Child column),(fTable, table, "parent", Parent column)])
                             . filter (isJust.colFk)
 
+tableFromRow :: (Text, Text, Bool) -> Table
+--tableFromRow (s, n, i) = Table s n i
+tableFromRow (s, n, i) = Table $ unpack n
 
------------- Hardcoded DB schema ----------------
-clientsFk = ForeignKey "clients" "id"
-projectsFk = ForeignKey "projects" "id"
-usersFk = ForeignKey "users" "id"
-tasksFk = ForeignKey "tasks" "id"
+columnFromRow :: (Text,       Text,      Text,
+                  Int,        Bool,      Text,
+                  Bool,       Maybe Int, Maybe Int,
+                  Maybe Text, Maybe Text)
+              -> Column
+columnFromRow (s, t, n, pos, nul, typ, u, l, p, d, e) =
+  --Column s t n pos nul typ u l p d (parseEnum e) Nothing
+  Column (unpack t) (unpack n) Nothing
+  -- where
+  --   parseEnum :: Maybe Text -> [Text]
+  --   parseEnum str = fromMaybe [] $ split (==',') <$> str
 
-clientsTable = Table "clients"
-clientsIdColumn = Column "clients" "id" Nothing
-clientsNameColumn = Column "clients" "name" Nothing
+tables :: H.Tx P.Postgres s [Table]
+tables = do
+    let schema = "public"::Text
+    rows <- H.listEx $
+      [H.stmt|
+        select
+          n.nspname as table_schema,
+          relname as table_name,
+          c.relkind = 'r' or (c.relkind IN ('v', 'f')) and (pg_relation_is_updatable(c.oid::regclass, false) & 8) = 8
+          or (exists (
+             select 1
+             from pg_trigger
+             where pg_trigger.tgrelid = c.oid and (pg_trigger.tgtype::integer & 69) = 69)
+          ) as insertable
+        from
+          pg_class c
+          join pg_namespace n on n.oid = c.relnamespace
+        where
+          c.relkind in ('v', 'r', 'm')
+          and n.nspname = ?
+          and (
+            pg_has_role(c.relowner, 'USAGE'::text)
+            or has_table_privilege(c.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER'::text)
+            or has_any_column_privilege(c.oid, 'SELECT, INSERT, UPDATE, REFERENCES'::text)
+          )
+        order by relname
+      |] schema
+    return $ map tableFromRow rows
 
-projectsTable = Table "projects"
-projectsIdColumn = Column "projects" "id" Nothing
-projectsNameColumn = Column "projects" "name" Nothing
-projectsClientIdColumn = Column "projects" "client_id" (Just clientsFk)
+foreignKeys :: Table -> H.Tx P.Postgres s (Map.Map Text ForeignKey)
+foreignKeys table = do
+  r <- H.listEx $ [H.stmt|
+      select kcu.column_name, ccu.table_name AS foreign_table_name,
+        ccu.column_name AS foreign_column_name
+      from information_schema.table_constraints AS tc
+        join information_schema.key_column_usage AS kcu
+          on tc.constraint_name = kcu.constraint_name
+        join information_schema.constraint_column_usage AS ccu
+          on ccu.constraint_name = tc.constraint_name
+      where constraint_type = 'FOREIGN KEY'
+        and tc.table_name=? and tc.table_schema = ?
+        order by kcu.column_name
+    |] (pack $ tblName table) ("public"::Text)
 
+  return $ foldl addKey Map.empty r
+  where
+    addKey :: Map.Map Text ForeignKey -> (Text, Text, Text) -> Map.Map Text ForeignKey
+    addKey m (col, ftab, fcol) = Map.insert col (ForeignKey (unpack ftab) (unpack fcol)) m
 
-tasksTable = Table "tasks"
-tasksIdColumn = Column "tasks" "id" Nothing
-tasksNameColumn = Column "tasks" "name" Nothing
-tasksProjectIdColumn = Column "tasks" "project_id" (Just projectsFk)
+columns :: Table -> H.Tx P.Postgres s [Column]
+columns table = do
+  cols <- H.listEx $ [H.stmt|
+      select info.table_schema as schema, info.table_name as table_name,
+            info.column_name as name, info.ordinal_position as position,
+            info.is_nullable::boolean as nullable, info.data_type as col_type,
+            info.is_updatable::boolean as updatable,
+            info.character_maximum_length as max_len,
+            info.numeric_precision as precision,
+            info.column_default as default_value,
+            array_to_string(enum_info.vals, ',') as enum
+        from (
+          select table_schema, table_name, column_name, ordinal_position,
+                 is_nullable, data_type, is_updatable,
+                 character_maximum_length, numeric_precision,
+                 column_default, udt_name
+            from information_schema.columns
+           where table_schema = ? and table_name = ?
+        ) as info
+        left outer join (
+          select n.nspname as s,
+                 t.typname as n,
+                 array_agg(e.enumlabel ORDER BY e.enumsortorder) as vals
+          from pg_type t
+            join pg_enum e on t.oid = e.enumtypid
+            join pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+          group by s, n
+        ) as enum_info
+        on (info.udt_name = enum_info.n)
+      order by position |]
+    ("public"::Text) (pack $ tblName table)
 
-usersTable = Table "users"
-usersIdColumn = Column "users" "id" Nothing
-usersNameColumn = Column "users" "name" Nothing
+  fks <- foreignKeys table
+  return $ map (addFK fks . columnFromRow) cols
 
-usersProjectsTable = Table "users_projects"
-upUserIdColumn = Column "users_projects" "user_id" (Just usersFk)
-upProjectIdColumn = Column "users_projects" "project_id" (Just projectsFk)
-
-usersTasksTable = Table "users_tasks"
-utUserIdColumn = Column "users_tasks" "user_id" (Just usersFk)
-utTaskIdColumn = Column "users_tasks" "task_id" (Just tasksFk)
-
-tables = [clientsTable, projectsTable, usersTable, tasksTable, usersProjectsTable, usersTasksTable]
-columns = [
-  clientsIdColumn, clientsNameColumn, projectsIdColumn, projectsNameColumn, projectsClientIdColumn,
-  usersIdColumn, usersNameColumn, tasksIdColumn, tasksNameColumn, tasksProjectIdColumn,
-  upUserIdColumn, upProjectIdColumn, utUserIdColumn, utTaskIdColumn
-  ]
+  where
+    addFK fks col = col { colFk = Map.lookup (cs .colName $ col) fks }

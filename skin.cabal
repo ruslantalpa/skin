@@ -35,6 +35,7 @@ executable skin
                      , string-conversions
                      , transformers
                      , vector
+                     
                      --, simple-sql-parser
                      --, blaze-builder
   hs-source-dirs:      src
