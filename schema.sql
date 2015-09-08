@@ -1,31 +1,50 @@
+CREATE USER skin_test WITH PASSWORD 'skin_pass';
+ALTER ROLE skin_test WITH NOSUPERUSER INHERIT NOCREATEROLE NOCREATEDB NOREPLICATION;
+
+CREATE DATABASE skin_test OWNER skin_test;
+
+\connect skin_test
+
 CREATE TABLE clients(
     id INT PRIMARY KEY     NOT NULL,
     name           TEXT    NOT NULL
 );
+ALTER TABLE clients OWNER TO skin_test;
+
 CREATE TABLE projects(
     id INT PRIMARY KEY     NOT NULL,
     name           TEXT    NOT NULL,
     client_id      INT     REFERENCES clients(id)
 );
+ALTER TABLE projects OWNER TO skin_test;
+
 CREATE TABLE tasks(
     id INT PRIMARY KEY     NOT NULL,
     name           TEXT    NOT NULL,
     project_id      INT     REFERENCES projects(id)
 );
+ALTER TABLE tasks OWNER TO skin_test;
+
 CREATE TABLE users(
     id INT PRIMARY KEY     NOT NULL,
     name           TEXT    NOT NULL
 );
+ALTER TABLE users OWNER TO skin_test;
+
 CREATE TABLE users_tasks(
     user_id      INT     REFERENCES users(id),
     task_id      INT     REFERENCES tasks(id),
     CONSTRAINT task_user PRIMARY KEY (task_id,user_id)
 );
+ALTER TABLE users_tasks OWNER TO skin_test;
+
 CREATE TABLE users_projects(
     user_id         INT     REFERENCES users(id),
     project_id      INT     REFERENCES projects(id),
     CONSTRAINT project_user PRIMARY KEY (project_id, user_id)
 );
+ALTER TABLE users_projects OWNER TO skin_test;
+
 
 ------- SAMPLE DATA -----
 INSERT INTO clients VALUES (1, 'Microsoft'),(2, 'Apple');

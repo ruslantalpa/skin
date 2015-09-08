@@ -57,7 +57,7 @@ application tables columns relations httpRequest  = do
 
 main = do
     -- db connection setup
-    let pgSettings = P.ParamSettings "localhost" 5432 "ruslantalpa" "" "ruslantalpa"
+    let pgSettings = P.ParamSettings "localhost" 5432 "skin_test" "skin_pass" "skin_test"
     poolSettings <- maybe (fail "Improper session settings") return $
         H.poolSettings 6 30
     pool :: H.Pool P.Postgres <- H.acquirePool pgSettings poolSettings
