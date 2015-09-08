@@ -19,7 +19,7 @@ http://localhost:3000/clients?id=eq.1&include=id,name,projects(id,name,tasks(id,
 
 **About the proposal**
 
-After the last pull request was merged, PostgreSQL now support and additional parameter &select that provides the ability to shape the output (select specific columns) and cast each column if desired
+After the last pull request was merged, PostgREST now support and additional parameter &select that provides the ability to shape the output (select specific columns) and cast each column if desired
 ```
 &select=col1,col2::int,col3->>sub1::json,col3->sub1->>sub2::int
 ```
