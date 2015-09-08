@@ -31,6 +31,11 @@ executable skin
                      , http-types
                      , text
                      , parsec
+                     , aeson
+                     , string-conversions
+                     , transformers
+                     , vector
+                     --, simple-sql-parser
                      --, blaze-builder
   hs-source-dirs:      src
   default-language:    Haskell2010

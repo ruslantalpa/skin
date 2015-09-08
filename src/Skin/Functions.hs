@@ -44,7 +44,7 @@ buildRequest rootTableName includeStr whereFilters =
                 val = snd <$> opVal
         filters = map parseFilter whereFilters
 
-addFilter :: (Path, Filter) -> Request -> Request -- OK
+addFilter :: (Path, Filter) -> Request -> Request
 addFilter ([], flt) (Node rn@(RequestNode {filters=flts}) forest) = Node (rn {filters=flt:flts}) forest
 addFilter (path, flt) (Node rn forest) =
     case targetNode of
@@ -59,7 +59,7 @@ addFilter (path, flt) (Node rn forest) =
                 Just node -> (Just node, delete node forest)
             where maybeNode = find ((name==).nodeName.rootLabel) forest
 
-requestNodeToQuery ::[Table] -> [Column] -> RequestNode -> Maybe Query -- OK
+requestNodeToQuery ::[Table] -> [Column] -> RequestNode -> Maybe Query
 requestNodeToQuery allTables allColumns (RequestNode name fields filters) =
     Select <$> mainTable <*> select <*> joinTables <*> qwhere <*> rel
     where
@@ -71,12 +71,12 @@ requestNodeToQuery allTables allColumns (RequestNode name fields filters) =
             where maybeConditions = map (filterToCondition allColumns name) filters
         rel = pure Nothing
 
-filterToCondition :: [Column] -> String -> Filter -> Maybe Condition -- OK
+filterToCondition :: [Column] -> String -> Filter -> Maybe Condition
 filterToCondition allColumns table (Filter fld op val) =
     Condition <$> column <*> pure op <*> pure val
     where column = find (\c->colTable c == table && colName c == fld) allColumns
 
-addRelations :: [RelationEntry] -> Maybe DbRequest -> DbRequest -> DbRequest -- OK
+addRelations :: [RelationEntry] -> Maybe DbRequest -> DbRequest -> DbRequest
 addRelations allRelations parentNode node@(Node query@(Select {qMainTable=table}) forest) =
     case parentNode of
         Nothing -> Node query{qRelation=Just Root} updatedForest
@@ -92,7 +92,7 @@ addRelations allRelations parentNode node@(Node query@(Select {qMainTable=table}
 addJoinConditions :: Tree Query -> Maybe (Tree Query)
 addJoinConditions (Node query@(Select{qMainTable=table, qJoinTables=from, qWhere=conditions, qRelation=relation}) forest) =
     case relation of
-        Nothing -> empty -- blow up
+        Nothing -> Nothing -- blow up
         Just Root -> Node <$> pure updatedQuery <*> updatedForest
         Just (Child relationColumn) -> Node <$> pure updatedQuery{qWhere=getJoinCondition relationColumn:qWhere updatedQuery} <*> updatedForest
         Just (Parent relationColumn) -> Node <$> pure updatedQuery <*> updatedForest
@@ -103,16 +103,17 @@ addJoinConditions (Node query@(Select{qMainTable=table, qJoinTables=from, qWhere
                 linkTable = Table (colTable relationColumn1)
     where
         updatedQuery = query {qWhere=parentJoinConditions++conditions, qJoinTables=from++parentTables}
-        maybeUpdatedForest = map addJoinConditions forest
+            where
+                parentJoinConditions = map (getJoinCondition.snd) parents
+                parentTables = map fst parents
+                parents = mapMaybe (getParents.rootLabel) forest
+                getParents q@(Select{qRelation=rel@(Just (Parent relationColumn))}) = Just (qMainTable q, relationColumn)
+                getParents _ = Nothing
         updatedForest = if all isJust maybeUpdatedForest then pure (catMaybes maybeUpdatedForest) else Nothing
-        parentJoinConditions = map (getJoinCondition.snd) parents
-        parentTables = map fst parents
-        parents = mapMaybe (getParents.rootLabel) forest
-        getParents q@(Select{qRelation=rel@(Just (Parent relationColumn))}) = Just (qMainTable q, relationColumn)
-        getParents _ = Nothing
+            where maybeUpdatedForest = map addJoinConditions forest
         getJoinCondition relationColumn = Condition relationColumn OpEQ (VForeignKey ((fromJust.colFk) relationColumn))
 
-dbRequestToQuery :: DbRequest -> String -- OK
+dbRequestToQuery :: DbRequest -> String
 dbRequestToQuery (Node (Select mainTable columns tables conditions relation) forest) =
     case relation of
         Just Root -> "SELECT "
@@ -125,10 +126,10 @@ dbRequestToQuery (Node (Select mainTable columns tables conditions relation) for
         otherwise -> query
     where
         query = unwords [
-            "WITH " <> intercalate ", " withs `emptyOnNull` withs,
-            "SELECT ", intercalate ", " (map colToStr columns <> selects),
+            ("WITH " <> intercalate ", " withs) `emptyOnNull` withs,
+            "SELECT ", intercalate ", " (map colToStr columns ++ selects),
             "FROM ", intercalate ", " (tblName mainTable:map tblName tables),
-            "WHERE " <> intercalate " AND " ( map conditionToStr conditions ) `emptyOnNull` conditions
+            ("WHERE " <> intercalate " AND " ( map conditionToStr conditions )) `emptyOnNull` conditions
             ]
         emptyOnNull val x = if null x then "" else val
         (withs, selects) = foldr getQueryParts ([],[]) forest
@@ -151,10 +152,10 @@ dbRequestToQuery (Node (Select mainTable columns tables conditions relation) for
                      <> "FROM (" <> dbRequestToQuery (Node query forest) <> ") " <> name
                      <> ") AS " <> name
 
-colToStr :: Column -> String -- OK
+colToStr :: Column -> String
 colToStr col = colTable col <> "." <> colName col
 
-conditionToStr :: Condition -> String -- OK
+conditionToStr :: Condition -> String
 conditionToStr (Condition col op val) = colToStr col <> opToStr op <> valToStr val
     where opToStr op = case op of
             OpEQ -> "="
