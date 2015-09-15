@@ -16,6 +16,7 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 executable skin
+  ghc-options:       -Wall
   main-is:             Main.hs
   -- other-modules:
   -- other-extensions:
@@ -35,7 +36,7 @@ executable skin
                      , string-conversions
                      , transformers
                      , vector
-                     
+                     , errors
                      --, simple-sql-parser
                      --, blaze-builder
   hs-source-dirs:      src
