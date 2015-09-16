@@ -1,6 +1,7 @@
 --{-# LANGUAGE QuasiQuotes, ScopedTypeVariables, OverloadedStrings, FlexibleContexts #-}
 module Skin.Parsers
 ( parseGetRequest
+, pFieldName
 )
 where
 import Text.ParserCombinators.Parsec hiding ((<|>), many)
@@ -12,7 +13,7 @@ import Control.Applicative
 import qualified Data.Text as T
 import Skin.Types
 import Data.Tree
-import qualified Network.Wai as Wai
+import Network.Wai (Request, pathInfo, queryString)
 --import qualified Data.ByteString.Char8 as C
 import Data.Maybe
 import Data.Foldable (foldrM)
@@ -22,31 +23,36 @@ import Data.String.Conversions (cs)
 --import qualified Data.ByteString.Char8 as C
 
 --buildRequest :: String -> String -> [(String, String)] -> Either P.ParseError Request
-parseGetRequest :: Wai.Request -> Either ParseError ApiRequest
+parseGetRequest :: Request -> Either ParseError ApiRequest
 parseGetRequest httpRequest =
-    case request of
-        Right r -> foldrM insertFilter r flts
-        Left e -> Left e
+    foldr addFilter <$> apiRequest <*> flts
     where
-        request = parse (pRequestInclude rootTableName) "failed to parse include" $ cs includeStr
-        insertFilter :: Either ParseError (Path, Filter) -> ApiRequest -> Either ParseError ApiRequest
-        insertFilter (Right (path, flt)) node = Right $ addFilter (path, flt) node
-        insertFilter (Left e) _ = Left e
-        parseFilter :: (String, String) -> Either ParseError (Path, Filter)
-        parseFilter (k, v) = (,) <$> path <*> (Filter <$> fld <*> op <*> val)
-            where
-                treePath = parse pTreePath "failed to parser tree path" k
-                opVal = parse pOpValueExp "failed to parse filter" v
-                path = fst <$> treePath
-                fld = snd <$> treePath
-                op = fst <$> opVal
-                val = snd <$> opVal
-        flts = map parseFilter whereFilters
+        apiRequest = parse (pRequestInclude rootTableName) "failed to parse include" $ cs includeStr
+        flts = mapM pRequestFilter whereFilters
+        rootTableName = cs $ head $ pathInfo httpRequest -- TODO unsafe head
+        qString = [(cs k, cs <$> v)|(k,v) <- queryString httpRequest]
+        includeStr = fromMaybe "*" $ fromMaybe (Just "*") $ lookup "include" qString --in case the parametre is missing or empty we default to *
+        whereFilters = [ (k, fromJust v) | (k,v) <- qString, k `notElem` ["include"], isJust v ]
 
-        rootTableName = T.unpack $ head $ Wai.pathInfo httpRequest
-        qString = [(cs k, cs <$> v)|(k,v) <- (Wai.queryString httpRequest)]
-        includeStr = fromJust $ join $ lookup "include" qString
-        whereFilters = [ (k, fromMaybe "" v) | (k,v) <- qString, k `notElem` ["include"] ]
+pRequestInclude :: String -> Parser ApiRequest
+pRequestInclude rootNodeName = do
+    fieldTree <- pFieldForest
+    return $ foldr treeEntry (Node (RequestNode rootNodeName [] []) []) fieldTree
+    where
+        treeEntry (Node fldName fldForest) (Node rNode rForest) =
+            case fldForest of
+                [] -> Node (rNode {fields=fldName:fields rNode}) rForest
+                _  -> Node rNode (foldr treeEntry (Node (RequestNode fldName [] []) []) fldForest:rForest)
+
+pRequestFilter :: (String, String) -> Either ParseError (Path, Filter)
+pRequestFilter (k, v) = (,) <$> path <*> (Filter <$> fld <*> op <*> val)
+    where
+        treePath = parse pTreePath "failed to parser tree path" k
+        opVal = parse pOpValueExp "failed to parse filter" v
+        path = fst <$> treePath
+        fld = snd <$> treePath
+        op = fst <$> opVal
+        val = snd <$> opVal
 
 addFilter :: (Path, Filter) -> ApiRequest -> ApiRequest
 addFilter ([], flt) (Node rn@(RequestNode {filters=flts}) forest) = Node (rn {filters=flt:flts}) forest
@@ -62,29 +68,18 @@ addFilter (path, flt) (Node rn forest) =
                 Nothing -> (Nothing,forest)
                 Just node -> (Just node, delete node forest)
             where maybeNode = find ((name==).nodeName.rootLabel) forst
--- id,name
--- id,name,client(id,name)
--- tasks.id=eq.1
+
 ws :: Parser String
 ws = many (oneOf " \t")
 
 --lexeme :: Parser String -> Parser String
 lexeme p = ws *> p <* ws
 
-pTreePath :: Parser ([String],String)
+pTreePath :: Parser (Path,Field)
 pTreePath = do
-    fullPath <- pFieldName `sepBy` char '.'
+    fullPath <- pFieldName `sepBy` pDelimiter
     return (init fullPath, last fullPath)
 
-pRequestInclude :: String -> Parser ApiRequest
-pRequestInclude rootNodeName = do
-    fieldTree <- pFieldForest
-    return $ foldr treeEntry (Node (RequestNode rootNodeName [] []) []) fieldTree
-    where
-        treeEntry (Node fldName fldForest) (Node rNode rForest) =
-            case fldForest of
-                [] -> Node (rNode {fields=fldName:fields rNode}) rForest
-                _  -> Node rNode (foldr treeEntry (Node (RequestNode fldName [] []) []) fldForest:rForest)
 
 pFieldForest :: Parser [Tree String]
 pFieldForest = pFieldTree `sepBy` lexeme (char ',')
@@ -105,17 +100,19 @@ pFieldTree =
     )
 
 pFieldName :: Parser String
-pFieldName =  try (lexeme $ many $ letter <|> digit <|> oneOf "-_") <?> "field name (a..z, 0..9, -_)"
+pFieldName =  string "*" *> pure "*"
+          <|> many (letter <|> digit <|> oneOf "-_")
+          <?> "field name (* or [a..z0..9-_])"
 
-pOp :: Parser Operator
-pOp =  try (
-       try (string "eq" *> pure OpEQ)
-   <|> try (string "gt" *> pure OpGT)
-   <|> try (string "lt" *> pure OpLT)
-   ) <?> fail "operator (eq, gt, ...)"
 
-pInt :: Parser Int
-pInt = try (liftA read (many (char ' ') *> many1 digit <* many (char ' '))) <?> "integer"
+pOperator :: Parser Operator
+pOperator =  try (string "eq" *> pure OpEQ)
+         <|> try (string "gt" *> pure OpGT)
+         <|> try (string "lt" *> pure OpLT)
+         <?> "operator (eq, gt, ...)"
+
+-- pInt :: Parser Int
+-- pInt = try (liftA read (many (char ' ') *> many1 digit <* many (char ' '))) <?> "integer"
 
 --pValue :: Parser Value
 --pValue = (VInt <$> try (pInt <* eof))
@@ -127,4 +124,4 @@ pDelimiter :: Parser Char
 pDelimiter = char '.' <?> "delimiter (.)"
 
 pOpValueExp :: Parser (Operator, Value)
-pOpValueExp = liftA2 (,) pOp (pDelimiter *> pValue)
+pOpValueExp = liftA2 (,) pOperator (pDelimiter *> pValue)

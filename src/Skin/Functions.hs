@@ -15,7 +15,7 @@ import Skin.Types
 import Data.Tree
 import Data.Foldable
 
---import Control.Applicative
+import Control.Applicative
 import Data.List (intercalate)
 --import qualified Data.ByteString.Char8 as B
 import Data.Maybe
@@ -23,26 +23,36 @@ import Data.Monoid
 --import qualified Data.Text as T
 import Control.Error.Util
 import Control.Error
+import Control.Monad.Trans.Error() -- used only for Alternative instance for Either String
 
+
+findColumn :: [Column] -> String -> String -> String -> Either String Column
+findColumn allColumns s t c = note ("no such column: "++t++"."++c)
+                            $ find (\ col -> colSchema col == s && colTable col == t && colName col == c ) allColumns
+
+findTable :: [Table] -> String -> String -> Either String Table
+findTable allTables s t = note ("no such table: "++t)
+                        $ find (\tb-> s == tableSchema tb && t == tableName tb ) allTables
 
 requestNodeToQuery ::String -> [Table] -> [Column] -> RequestNode -> Either String Query
 requestNodeToQuery schema allTables allColumns (RequestNode tblName flds fltrs) =
     Select <$> mainTable <*> select <*> joinTables <*> qwhere <*> rel
     where
-        mainTable = note ("no such table: "++tblName) $ find (\t-> schema == tableSchema t && tblName == tableName t ) allTables
-        select = if all isRight eitherColumns then pure (rights eitherColumns) else Left $ concat (lefts eitherColumns)
+        mainTable = findTable allTables schema tblName
+        select = mapM (liftA2 (<|>) star col) flds --besides specific columns, we allow * here also
             where
-                eitherColumns = map findColumn flds
-                findColumn f = note ("no such column: "++tblName++"."++f) $ find (\c->colTable c == tblName && colName c == f && colSchema c == schema) allColumns
+                col = findColumn allColumns schema tblName
+                star = isStar schema tblName -- it's ok not to check that the table exists here, mainTable will do the checking
+                isStar :: String -> String -> String -> Either String Column
+                isStar s t f = if f == "*" then Right $ Star {colSchema = s, colTable = t} else Left "not a star"
+        qwhere = mapM (filterToCondition schema allColumns tblName) fltrs
         joinTables = pure []
-        qwhere = if all isRight eitherConditions then pure (rights eitherConditions) else Left $ concat (lefts eitherConditions)
-            where eitherConditions = map (filterToCondition schema allColumns tblName) fltrs
         rel = pure Nothing
 
 filterToCondition :: String -> [Column] -> String -> Filter -> Either String Condition
 filterToCondition schema allColumns table (Filter fld op val) =
     Condition <$> column <*> pure op <*> pure val
-    where column = note ("no such column: "++table++"."++fld) $ find (\c->colTable c == table && colName c == fld && colSchema c == schema) allColumns
+    where column = findColumn allColumns schema table fld
 
 addRelations :: [Relation] -> Maybe DbRequest -> DbRequest -> DbRequest
 addRelations allRelations parentNode node@(Node query@(Select {qMainTable=table}) forest) =
@@ -78,10 +88,9 @@ addJoinConditions allColumns (Node query@(Select{qJoinTables=from, qWhere=condit
                 parents = mapMaybe (getParents.rootLabel) forest
                 getParents q@(Select{qRelation=(Just rel@(Relation{relType="parent"}))}) = Just (qMainTable q, rel)
                 getParents _ = Nothing
-        updatedForest = if all isRight maybeUpdatedForest then pure (rights maybeUpdatedForest) else Left "some error"
-            where maybeUpdatedForest = map (addJoinConditions allColumns) forest
+        updatedForest = mapM (addJoinConditions allColumns) forest
         getJoinCondition rel@(Relation s t c _ _ _) = Condition <$> col <*> pure OpEQ <*> pure (VForeignKey rel)
-            where col = note "could not find column" $ find (\(Column{colSchema=cs, colTable=ct, colName=cn})->s==cs && t==ct && c==cn) allColumns
+            where col = findColumn allColumns s t c
 
 dbRequestToQuery :: DbRequest -> String
 dbRequestToQuery (Node (Select mainTable columns tables conditions relation) forest) =
@@ -124,7 +133,8 @@ dbRequestToQuery (Node (Select mainTable columns tables conditions relation) for
         --              <> ") AS " <> name
 
 colToStr :: Column -> String
-colToStr col = "\"" <> colSchema col <> "\"." <> colTable col <> "." <> colName col
+colToStr Column {colSchema=s, colTable=t, colName=c} = "\"" <> s <> "\"." <> t <> "." <> c
+colToStr Star {colSchema=s, colTable=t} = "\"" <> s <> "\"." <> t <> ".*"
 
 tblToStr :: Table -> String
 tblToStr tbl = "\"" <> tableSchema tbl <> "\"." <> tableName tbl

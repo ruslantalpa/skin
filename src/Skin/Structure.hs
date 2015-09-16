@@ -22,9 +22,6 @@ import Data.Maybe
 --import GHC.Exts (groupWith)
 import Data.Text (Text, unpack, split) -- hiding (foldl, map, zipWith, concat, concatMap, filter, length, head, all)
 
-
-
-
 tableFromRow :: (Text, Text, Bool) -> Table
 tableFromRow (s, n, i) = Table (unpack s) (unpack n) i
 
@@ -42,81 +39,93 @@ columnFromRow (s, t, n, pos, nul, typ, u, l, p, d, e) =
 relationFromRow :: (Text, Text, Text, Text, Text) -> Relation
 relationFromRow (s, t, c, ft, fc) = Relation (unpack s) (unpack t) (unpack c) (unpack ft) (unpack fc) "child"
 
+addFlippedRelation :: Relation -> [Relation] -> [Relation]
+addFlippedRelation rel@(Relation s t c ft fc _) rels = Relation s ft fc t c "parent":rel:rels
+
 tables :: H.Tx P.Postgres s [Table]
 tables = do
-    rows <- H.listEx $
-      [H.stmt|
-        select
-          n.nspname as table_schema,
-          relname as table_name,
-          c.relkind = 'r' or (c.relkind IN ('v', 'f')) and (pg_relation_is_updatable(c.oid::regclass, false) & 8) = 8
-          or (exists (
-             select 1
-             from pg_trigger
-             where pg_trigger.tgrelid = c.oid and (pg_trigger.tgtype::integer & 69) = 69)
-          ) as insertable
-        from
-          pg_class c
-          join pg_namespace n on n.oid = c.relnamespace
-        where
-          c.relkind in ('v', 'r', 'm')
-          and n.nspname not in ('information_schema', 'pg_catalog')
-          and (
-            pg_has_role(c.relowner, 'USAGE'::text)
-            or has_table_privilege(c.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER'::text)
-            or has_any_column_privilege(c.oid, 'SELECT, INSERT, UPDATE, REFERENCES'::text)
-          )
-        order by relname
-      |]
+    rows <- H.listEx $ [H.stmt|
+            SELECT  n.nspname AS table_schema,
+                    relname   AS TABLE_NAME,
+                    c.relkind = 'r' OR (c.relkind IN ('v','f'))
+                    AND (pg_relation_is_updatable(c.oid::regclass, FALSE) & 8) = 8
+                    OR (EXISTS ( SELECT 1
+                                 FROM pg_trigger
+                                 WHERE pg_trigger.tgrelid = c.oid
+                                 AND (pg_trigger.tgtype::integer & 69) = 69)
+                    ) AS insertable
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE   c.relkind IN ('v','r','m')
+                AND n.nspname NOT IN ('information_schema','pg_catalog')
+                AND (  pg_has_role(c.relowner, 'USAGE'::text)
+                    OR has_table_privilege(c.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER'::text)
+                    OR has_any_column_privilege(c.oid, 'SELECT, INSERT, UPDATE, REFERENCES'::text)
+                    )
+            ORDER BY relname
+        |]
     return $ map tableFromRow rows
 
 relations :: H.Tx P.Postgres s [Relation]
 relations = do
     rels <- H.listEx $ [H.stmt|
-        SELECT DISTINCT tc.table_schema, tc.table_name, kcu.column_name, ccu.table_name AS foreign_table_name, ccu.column_name AS foreign_column_name
+        SELECT DISTINCT
+            tc.table_schema, tc.table_name, kcu.column_name,
+            ccu.table_name AS foreign_table_name,
+            ccu.column_name AS foreign_column_name
         FROM information_schema.table_constraints AS tc
         JOIN information_schema.key_column_usage AS kcu on tc.constraint_name = kcu.constraint_name
         JOIN information_schema.constraint_column_usage AS ccu on ccu.constraint_name = tc.constraint_name
-        WHERE constraint_type = 'FOREIGN KEY'
-        AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
+        WHERE   constraint_type = 'FOREIGN KEY'
+            AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
         ORDER BY tc.table_schema, tc.table_name, kcu.column_name
     |]
-    return $ foldr addFlippedRelation [] $ map relationFromRow rels
-    where
-        addFlippedRelation rel@(Relation s t c ft fc r) relations = (Relation s ft fc t c "parent"):rel:relations
+    return $ foldr (addFlippedRelation.relationFromRow) [] rels
 
 columns :: H.Tx P.Postgres s [Column]
 columns = do
-  cols <- H.listEx $ [H.stmt|
-      select info.table_schema as schema, info.table_name as table_name,
-            info.column_name as name, info.ordinal_position as position,
-            info.is_nullable::boolean as nullable, info.data_type as col_type,
-            info.is_updatable::boolean as updatable,
-            info.character_maximum_length as max_len,
-            info.numeric_precision as precision,
-            info.column_default as default_value,
-            array_to_string(enum_info.vals, ',') as enum
-        from (
-          select table_schema, table_name, column_name, ordinal_position,
-                 is_nullable, data_type, is_updatable,
-                 character_maximum_length, numeric_precision,
-                 column_default, udt_name
-            from information_schema.columns
-           where table_schema not in ('pg_catalog', 'information_schema')
-        ) as info
-        left outer join (
-          select n.nspname as s,
-                 t.typname as n,
-                 array_agg(e.enumlabel ORDER BY e.enumsortorder) as vals
-          from pg_type t
-            join pg_enum e on t.oid = e.enumtypid
-            join pg_catalog.pg_namespace n ON n.oid = t.typnamespace
-          group by s, n
-        ) as enum_info
-        on (info.udt_name = enum_info.n)
-      order by schema, position |]
-
-  return $ map columnFromRow cols
+    cols <- H.listEx $ [H.stmt|
+        SELECT
+            info.table_schema AS schema,
+            info.table_name AS table_name,
+            info.column_name AS name,
+            info.ordinal_position AS position,
+            info.is_nullable::boolean AS nullable,
+            info.data_type AS col_type,
+            info.is_updatable::boolean AS updatable,
+            info.character_maximum_length AS max_len,
+            info.numeric_precision AS precision,
+            info.column_default AS default_value,
+            array_to_string(enum_info.vals, ',') AS enum
+        FROM (
+            SELECT
+                table_schema,
+                table_name,
+                column_name,
+                ordinal_position,
+                is_nullable,
+                data_type,
+                is_updatable,
+                character_maximum_length,
+                numeric_precision,
+                column_default,
+                udt_name
+            FROM information_schema.columns
+            WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+        ) AS info
+        LEFT OUTER JOIN (
+            SELECT
+                n.nspname AS s,
+                t.typname AS n,
+                array_agg(e.enumlabel ORDER BY e.enumsortorder) AS vals
+            FROM pg_type t
+            JOIN pg_enum e ON t.oid = e.enumtypid
+            JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+            GROUP BY s,n
+        ) AS enum_info ON (info.udt_name = enum_info.n)
+        ORDER BY schema, position
+    |]
+    return $ map columnFromRow cols
   -- fks <- foreignKeys table
   -- return $ map (addFK fks . columnFromRow) cols
   --

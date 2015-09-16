@@ -49,7 +49,7 @@ data Column = Column {
 , colDefault :: Maybe String
 , colEnum :: [String]
 --, colFK :: Maybe ForeignKey
-} deriving (Show, Eq)
+} | Star {colSchema :: String, colTable :: String } deriving (Show, Eq)
 
 data Table = Table {
   tableSchema :: String
