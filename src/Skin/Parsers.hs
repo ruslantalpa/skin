@@ -4,22 +4,22 @@ module Skin.Parsers
 , pFieldName
 )
 where
-import Text.ParserCombinators.Parsec hiding ((<|>), many)
+import           Text.ParserCombinators.Parsec hiding (many, (<|>))
 --import Text.Parsec.Text
 --import Text.Parsec hiding (many, (<|>))
 --import Text.Parsec.Prim hiding (many, (<|>))
-import Control.Applicative
+import           Control.Applicative
 --import Control.Monad
-import qualified Data.Text as T
-import Skin.Types
-import Data.Tree
-import Network.Wai (Request, pathInfo, queryString)
+import qualified Data.Text                     as T
+import           Data.Tree
+import           Network.Wai                   (Request, pathInfo, queryString)
+import           Skin.Types
 --import qualified Data.ByteString.Char8 as C
-import Data.Maybe
-import Data.Foldable (foldrM)
-import Control.Monad
-import Data.List ( delete, find)
-import Data.String.Conversions (cs)
+import           Control.Monad
+import           Data.Foldable                 (foldrM)
+import           Data.List                     (delete, find)
+import           Data.Maybe
+import           Data.String.Conversions       (cs)
 --import qualified Data.ByteString.Char8 as C
 
 --buildRequest :: String -> String -> [(String, String)] -> Either P.ParseError Request

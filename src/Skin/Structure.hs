@@ -1,6 +1,9 @@
-{-# LANGUAGE QuasiQuotes, OverloadedStrings, TypeSynonymInstances,
-             MultiParamTypeClasses, ScopedTypeVariables,
-             FlexibleContexts #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE QuasiQuotes           #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TypeSynonymInstances  #-}
 
 module Skin.Structure
 (
@@ -13,14 +16,14 @@ module Skin.Structure
 )
 where
 
-import qualified Hasql as H
+import qualified Hasql          as H
 import qualified Hasql.Postgres as P
 --import qualified Data.Map as Map
 --import Data.String.Conversions (cs)
-import Skin.Types
-import Data.Maybe
+import           Data.Maybe
+import           Skin.Types
 --import GHC.Exts (groupWith)
-import Data.Text (Text, unpack, split) -- hiding (foldl, map, zipWith, concat, concatMap, filter, length, head, all)
+import           Data.Text      (Text, split, unpack)
 
 tableFromRow :: (Text, Text, Bool) -> Table
 tableFromRow (s, n, i) = Table (unpack s) (unpack n) i

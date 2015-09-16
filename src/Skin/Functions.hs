@@ -10,20 +10,20 @@ module Skin.Functions
 ) where
 
 --import qualified Text.ParserCombinators.Parsec as P hiding ((<|>), many)
-import Skin.Types
+import           Skin.Types
 --import Skin.Parsers
-import Data.Tree
-import Data.Foldable
+import           Data.Foldable
+import           Data.Tree
 
-import Control.Applicative
-import Data.List (intercalate)
+import           Control.Applicative
+import           Data.List                 (intercalate)
 --import qualified Data.ByteString.Char8 as B
-import Data.Maybe
-import Data.Monoid
+import           Data.Maybe
+import           Data.Monoid
 --import qualified Data.Text as T
-import Control.Error.Util
-import Control.Error
-import Control.Monad.Trans.Error() -- used only for Alternative instance for Either String
+import           Control.Error
+import           Control.Error.Util
+import           Control.Monad.Trans.Error ()
 
 
 findColumn :: [Column] -> String -> String -> String -> Either String Column

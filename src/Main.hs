@@ -1,27 +1,30 @@
 
-{-# LANGUAGE QuasiQuotes, ScopedTypeVariables, OverloadedStrings, FlexibleContexts #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE QuasiQuotes         #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Main where
 
-import Skin.Types
-import Skin.Structure
-import Skin.Functions
-import Skin.Error
-import Skin.Parsers
-import Data.Maybe (fromMaybe)
-import Control.Monad.IO.Class (liftIO)
-import Network.Wai
-import Network.HTTP.Types (status200)
-import Network.Wai.Handler.Warp (run)
+import           Control.Monad.IO.Class     (liftIO)
+import           Data.Bifunctor             (first)
+import qualified Data.ByteString.Char8      as C
 import qualified Data.ByteString.Lazy.Char8 as CL
-import qualified Data.ByteString.Char8 as C
-import qualified Data.Text as T
-import Data.String.Conversions (cs)
-import Data.Bifunctor (first)
+import           Data.Maybe                 (fromMaybe)
+import           Data.String.Conversions    (cs)
+import qualified Data.Text                  as T
+import           Network.HTTP.Types         (status200)
+import           Network.Wai
+import           Network.Wai.Handler.Warp   (run)
+import           Skin.Error
+import           Skin.Functions
+import           Skin.Parsers
+import           Skin.Structure
+import           Skin.Types
 
-import qualified Hasql as H
-import qualified Hasql.Backend as B
-import qualified Hasql.Postgres as P
-import qualified Data.Vector as V
+import qualified Data.Vector                as V
+import qualified Hasql                      as H
+import qualified Hasql.Backend              as B
+import qualified Hasql.Postgres             as P
 
 
 application :: String -> [Table] -> [Column] -> [Relation] -> Request -> H.Tx P.Postgres s Response
