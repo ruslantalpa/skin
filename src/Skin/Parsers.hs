@@ -10,13 +10,13 @@ import           Text.ParserCombinators.Parsec hiding (many, (<|>))
 --import Text.Parsec.Prim hiding (many, (<|>))
 import           Control.Applicative
 --import Control.Monad
-import qualified Data.Text                     as T
+--import qualified Data.Text                     as T
 import           Data.Tree
 import           Network.Wai                   (Request, pathInfo, queryString)
 import           Skin.Types
 --import qualified Data.ByteString.Char8 as C
-import           Control.Monad
-import           Data.Foldable                 (foldrM)
+--import           Control.Monad
+--import           Data.Foldable                 (foldrM)
 import           Data.List                     (delete, find)
 import           Data.Maybe
 import           Data.String.Conversions       (cs)
@@ -73,6 +73,8 @@ ws :: Parser String
 ws = many (oneOf " \t")
 
 --lexeme :: Parser String -> Parser String
+--lexeme :: Text.Parsec.Prim.ParsecT String () Data.Functor.Identity.Identity a -> Text.Parsec.Prim.ParsecT String () Data.Functor.Identity.Identity a
+--lexeme :: Text.Parsec.Prim.ParsecT String () Data.Functor.Identity.Identity Char -> Text.Parsec.Prim.ParsecT String () Data.Functor.Identity.Identity Char
 lexeme p = ws *> p <* ws
 
 pTreePath :: Parser (Path,Field)

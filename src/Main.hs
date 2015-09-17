@@ -28,7 +28,7 @@ import qualified Hasql.Postgres             as P
 
 
 application :: String -> [Table] -> [Column] -> [Relation] -> Request -> H.Tx P.Postgres s Response
-application schema tbls cols relations httpRequest  = do
+application schema allTables allColumns allRelations httpRequest  = do
     -- return $ responseLBS status200 [("Content-Type", "text/plain")] $ CL.pack $ show apiRequest
     case query of
         Left e -> return $ responseLBS status200 [("Content-Type", "text/plain")] $ CL.pack e
@@ -46,9 +46,9 @@ application schema tbls cols relations httpRequest  = do
         queryStr = either id id query
         query = dbRequestToQuery <$> dbRequest
         dbRequest = first formatParserError apiRequest
-                >>= traverse (requestNodeToQuery schema tbls cols)
-                >>= (return.addRelations relations Nothing)
-                >>= addJoinConditions cols
+                >>= traverse (requestNodeToQuery schema allTables allColumns)
+                >>= addRelations allRelations Nothing
+                >>= addJoinConditions allColumns
                 where formatParserError = show
         apiRequest = parseGetRequest httpRequest
 
