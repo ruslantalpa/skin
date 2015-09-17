@@ -45,22 +45,34 @@ requestNodeToQuery schema allTables allColumns (RequestNode tblName flds fltrs) 
     Select <$> mainTable <*> select <*> joinTables <*> qwhere <*> rel
     where
         mainTable = findTable allTables schema tblName
-        select = mapM toColumn flds --besides specific columns, we allow * here also
+        select = mapM matchColumn flds --besides specific columns, we allow * here also
             where
-                toColumn = note ("no such column: "++tblName++".!!! name missing") . liftA2 (<|>) matchStar matchColumn
-                matchColumn = hush . findColumn allColumns schema tblName
-                matchStar = hush . isStar schema tblName -- it's ok not to check that the table exists here, mainTable will do the checking
-                isStar :: String -> String -> String -> Either String Column
-                isStar s t "*" = Right $ Star {colSchema = s, colTable = t}
-                isStar _ _ _   = Left "not a star"
+                matchColumn (c, cast) = (,,) <$> col <*> pure jp <*> pure cast
+                    where
+                        col = findColumn allColumns schema tblName $ head c
+                        jp = jsonPath c
+                -- toColumn = note ("no such column: "++tblName++".!!! name missing") . liftA2 (<|>) matchStar matchColumn
+                -- matchColumn = hush . findColumn allColumns schema tblName
+                -- matchStar = hush . isStar schema tblName -- it's ok not to check that the table exists here, mainTable will do the checking
+                --     where
+                --         isStar :: String -> String -> String -> Either String Column
+                --         isStar s t "*" = Right $ Star {colSchema = s, colTable = t}
+                --         isStar _ _ _   = Left "not a star"
         qwhere = mapM (filterToCondition schema allColumns tblName) fltrs
         joinTables = pure []
         rel = pure Nothing
 
+jsonPath :: [String] -> Maybe [String]
+jsonPath (_:[]) = Nothing
+jsonPath (_:xs) = Just xs
+jsonPath _      = Nothing
+
 filterToCondition :: String -> [Column] -> String -> Filter -> Either String Condition
 filterToCondition schema allColumns table (Filter fld op val) =
-    Condition <$> column <*> pure op <*> pure val
-    where column = findColumn allColumns schema table fld
+    Condition <$> c <*> pure op <*> pure val
+    where
+        c = (,) <$> column <*> pure (jsonPath fld)
+        column = findColumn allColumns schema table $ head fld
 
 addRelations :: [Relation] -> Maybe DbRequest -> DbRequest -> Either String DbRequest
 addRelations allRelations parentNode node@(Node query@(Select {qMainTable=table}) forest) =
@@ -97,8 +109,10 @@ addJoinConditions allColumns (Node query@(Select{qRelation=relation}) forest) =
                 getParents qq@(Select{qRelation=(Just rel@(Relation{relType="parent"}))}) = Just (qMainTable qq, rel)
                 getParents _ = Nothing
         updatedForest = mapM (addJoinConditions allColumns) forest
-        getJoinCondition rel@(Relation s t c _ _ _) = Condition <$> col <*> pure OpEQ <*> pure (VForeignKey rel)
-            where col = findColumn allColumns s t c
+        getJoinCondition rel@(Relation s t c _ _ _) = Condition <$> cc <*> pure OpEQ <*> pure (VForeignKey rel)
+            where
+                col = findColumn allColumns s t c
+                cc = (,) <$> col <*> pure Nothing
         addCond q con = q{qWhere=con:qWhere q}
 
 dbRequestToQuery :: DbRequest -> String
@@ -115,7 +129,7 @@ dbRequestToQuery (Node (Select mainTable columns tables conditions relation) for
     where
         query = unwords [
             ("WITH " <> intercalate ", " withs) `emptyOnNull` withs,
-            "SELECT ", intercalate ", " (map colToStr columns ++ selects),
+            "SELECT ", intercalate ", " (map selectItemToStr columns ++ selects),
             "FROM ", intercalate ", " (map tblToStr (mainTable:tables)),
             ("WHERE " <> intercalate " AND " ( map conditionToStr conditions )) `emptyOnNull` conditions
             ]
@@ -144,6 +158,14 @@ dbRequestToQuery (Node (Select mainTable columns tables conditions relation) for
         getQueryParts (Node (Select{qRelation=Nothing}) _) _ = undefined
         getQueryParts (Node (Select{qRelation=(Just (Relation {relType=_}))}) _) _ = undefined
 
+selectItemToStr :: (Column, Maybe [String], Maybe String) -> String
+selectItemToStr (c, jp, Nothing) = colToStr c <> jpToStr jp <> asJsonPath jp
+selectItemToStr (c, jp, Just cast ) = "CAST (" <> colToStr c <> jpToStr jp <> " AS " <> cast <> " )" <> asJsonPath jp
+
+asJsonPath :: Maybe [String] -> String
+asJsonPath Nothing = ""
+asJsonPath (Just xx) = " AS " <> last xx
+
 colToStr :: Column -> String
 colToStr Column {colSchema=s, colTable=t, colName=c} = "\"" <> s <> "\"." <> t <> "." <> c
 colToStr Star {colSchema=s, colTable=t} = "\"" <> s <> "\"." <> t <> ".*"
@@ -151,13 +173,19 @@ colToStr Star {colSchema=s, colTable=t} = "\"" <> s <> "\"." <> t <> ".*"
 tblToStr :: Table -> String
 tblToStr Table{tableSchema=s, tableName=n} = "\"" <> s <> "\"." <> n
 
+jpToStr :: Maybe [String] -> String
+jpToStr (Just [x]) = "->>" <> "'" <> x <> "'"
+jpToStr (Just (x:xs)) = "->" <> "'" <> x <> "'" <> jpToStr ( Just xs )
+jpToStr _ = ""
+
 conditionToStr :: Condition -> String
-conditionToStr (Condition col op val) = colToStr col <> opToStr op <> valToStr val
-    where opToStr o = case o of
+conditionToStr (Condition (col,jp) op val) = colToStr col <> jpToStr jp  <> opToStr op <> valToStr val
+    where
+        opToStr o = case o of
             OpEQ -> "="
             OpGT -> ">"
             OpLT -> "<"
-          valToStr v = case v of
+        valToStr v = case v of
             VInt i -> show i
             VString s -> "'" <> s <> "'" -- TODO sql injection prone
             VForeignKey (Relation{relFTable=table, relFColumn=column}) -> table <> "." <> column

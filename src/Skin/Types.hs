@@ -4,6 +4,8 @@ module Skin.Types
 
 , ApiRequest
 , Field
+, Cast
+, SelectItem
 , RequestNode (..)
 , Filter (..)
 , Path
@@ -26,9 +28,11 @@ data Value = VInt Int | VString String | VForeignKey Relation deriving (Show, Eq
 
 -- Request Types
 type ApiRequest = Tree RequestNode
-type Field = String
+type Field = [String]
+type Cast = Maybe String
+type SelectItem = (Field, Cast)
 type Path = [String]
-data RequestNode = RequestNode {nodeName::String, fields::[Field], filters::[Filter]} deriving (Show, Eq)
+data RequestNode = RequestNode {nodeName::String, fields::[SelectItem], filters::[Filter]} deriving (Show, Eq)
 data Filter = Filter {field::Field, operator::Operator, value::Value} deriving (Show, Eq)
 
 -- Db Types
@@ -73,6 +77,7 @@ data Relation = Relation {
 , relType    :: String
 } deriving (Show, Eq)
 
-data Condition = Condition {conColumn::Column, conOperator::Operator, conValue::Value} deriving (Show)
-data Query = Select {qMainTable::Table, qSelect::[Column], qJoinTables::[Table], qWhere::[Condition], qRelation::Maybe Relation} deriving (Show)
+type JsonPath = [String]
+data Condition = Condition {conColumn::(Column, Maybe JsonPath), conOperator::Operator, conValue::Value} deriving (Show)
+data Query = Select {qMainTable::Table, qSelect::[(Column, Maybe JsonPath, Cast)], qJoinTables::[Table], qWhere::[Condition], qRelation::Maybe Relation} deriving (Show)
 type DbRequest = Tree Query

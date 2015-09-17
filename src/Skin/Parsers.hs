@@ -1,8 +1,10 @@
 --{-# LANGUAGE QuasiQuotes, ScopedTypeVariables, OverloadedStrings, FlexibleContexts #-}
 module Skin.Parsers
-( parseGetRequest
-, pFieldName
-)
+-- ( parseGetRequest
+-- , pSelect
+-- , pField
+-- , pRequestInclude
+-- )
 where
 import           Text.ParserCombinators.Parsec hiding (many, (<|>))
 --import Text.Parsec.Text
@@ -39,11 +41,13 @@ pRequestInclude rootNodeName = do
     fieldTree <- pFieldForest
     return $ foldr treeEntry (Node (RequestNode rootNodeName [] []) []) fieldTree
     where
-        treeEntry (Node fldName fldForest) (Node rNode rForest) =
+        treeEntry :: Tree SelectItem -> Tree RequestNode -> Tree RequestNode
+        treeEntry (Node fld@(p,_) fldForest) (Node rNode rForest) =
             case fldForest of
-                [] -> Node (rNode {fields=fldName:fields rNode}) rForest
-                _  -> Node rNode (foldr treeEntry (Node (RequestNode fldName [] []) []) fldForest:rForest)
+                [] -> Node (rNode {fields=fld:fields rNode}) rForest
+                _  -> Node rNode (foldr treeEntry (Node (RequestNode (head p) [] []) []) fldForest:rForest)
 
+--TODO handle json columns
 pRequestFilter :: (String, String) -> Either ParseError (Path, Filter)
 pRequestFilter (k, v) = (,) <$> path <*> (Filter <$> fld <*> op <*> val)
     where
@@ -79,33 +83,41 @@ lexeme p = ws *> p <* ws
 
 pTreePath :: Parser (Path,Field)
 pTreePath = do
-    fullPath <- pFieldName `sepBy` pDelimiter
-    return (init fullPath, last fullPath)
+    p <- pFieldName `sepBy` pDelimiter
+    f <- pField
+    return (p, f)
 
 
-pFieldForest :: Parser [Tree String]
+pFieldForest :: Parser [Tree SelectItem]
 pFieldForest = pFieldTree `sepBy` lexeme (char ',')
 
-pFieldTree :: Parser (Tree Field)
+pFieldTree :: Parser (Tree SelectItem)
 pFieldTree =
     try (
         do
-            fld <- pFieldName
+            fld <- pSelect
             _ <- lexeme $ char '('
             subforest <- pFieldForest
             _ <- lexeme $ char ')'
             return (Node fld subforest))
     <|> (
         do
-            fld <- pFieldName
+            fld <- pSelect
             return (Node fld [])
     )
 
 pFieldName :: Parser String
 pFieldName =  string "*" *> pure "*"
-          <|> many (letter <|> digit <|> oneOf "-_")
-          <?> "field name (* or [a..z0..9-_])"
+          <|> many (letter <|> digit <|> oneOf "_")
+          <?> "field name (* or [a..z0..9_])"
+pField :: Parser Field
+pField = pFieldName `sepBy` (try (string "->>") <|> string "->")
 
+pSelect :: Parser SelectItem
+pSelect = lexeme $ do
+    n <- pField
+    v <- optionMaybe (string "::" >> many letter)
+    return (n, v)
 
 pOperator :: Parser Operator
 pOperator =  try (string "eq" *> pure OpEQ)
