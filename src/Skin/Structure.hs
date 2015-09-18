@@ -72,16 +72,34 @@ tables = do
 relations :: H.Tx P.Postgres s [Relation]
 relations = do
     rels <- H.listEx $ [H.stmt|
-        SELECT DISTINCT
-            tc.table_schema, tc.table_name, kcu.column_name,
-            ccu.table_name AS foreign_table_name,
-            ccu.column_name AS foreign_column_name
-        FROM information_schema.table_constraints AS tc
-        JOIN information_schema.key_column_usage AS kcu on tc.constraint_name = kcu.constraint_name
-        JOIN information_schema.constraint_column_usage AS ccu on ccu.constraint_name = tc.constraint_name
-        WHERE   constraint_type = 'FOREIGN KEY'
-            AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
-        ORDER BY tc.table_schema, tc.table_name, kcu.column_name
+        WITH table_fk AS (
+            SELECT DISTINCT
+                tc.table_schema, tc.table_name, kcu.column_name,
+                ccu.table_name AS foreign_table_name,
+                ccu.column_name AS foreign_column_name
+            FROM information_schema.table_constraints AS tc
+            JOIN information_schema.key_column_usage AS kcu on tc.constraint_name = kcu.constraint_name
+            JOIN information_schema.constraint_column_usage AS ccu on ccu.constraint_name = tc.constraint_name
+            WHERE   constraint_type = 'FOREIGN KEY'
+                AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
+            ORDER BY tc.table_schema, tc.table_name, kcu.column_name
+        )
+        SELECT * FROM table_fk
+        UNION
+        (
+            SELECT DISTINCT
+                vcu.table_schema, vcu.view_name AS table_name, vcu.column_name,
+                table_fk.foreign_table_name,
+                table_fk.foreign_column_name
+            FROM information_schema.view_column_usage as vcu
+            JOIN table_fk ON
+                table_fk.table_schema = vcu.view_schema AND
+                table_fk.table_name = vcu.table_name AND
+                table_fk.column_name = vcu.column_name
+            WHERE vcu.view_schema NOT IN ('pg_catalog', 'information_schema')
+            ORDER BY vcu.table_schema, vcu.view_name, vcu.column_name
+        )
+
     |]
     return $ foldr (addFlippedRelation.relationFromRow) [] rels
 
