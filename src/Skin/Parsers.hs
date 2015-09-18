@@ -5,6 +5,7 @@ module Skin.Parsers
 -- , pField
 -- , pRequestInclude
 -- )
+
 where
 import           Text.ParserCombinators.Parsec hiding (many, (<|>))
 --import Text.Parsec.Text
@@ -42,12 +43,11 @@ pRequestInclude rootNodeName = do
     return $ foldr treeEntry (Node (RequestNode rootNodeName [] []) []) fieldTree
     where
         treeEntry :: Tree SelectItem -> Tree RequestNode -> Tree RequestNode
-        treeEntry (Node fld@(p,_) fldForest) (Node rNode rForest) =
+        treeEntry (Node fld@((fn, _),_) fldForest) (Node rNode rForest) =
             case fldForest of
                 [] -> Node (rNode {fields=fld:fields rNode}) rForest
-                _  -> Node rNode (foldr treeEntry (Node (RequestNode (head p) [] []) []) fldForest:rForest)
+                _  -> Node rNode (foldr treeEntry (Node (RequestNode fn [] []) []) fldForest:rForest)
 
---TODO handle json columns
 pRequestFilter :: (String, String) -> Either ParseError (Path, Filter)
 pRequestFilter (k, v) = (,) <$> path <*> (Filter <$> fld <*> op <*> val)
     where
@@ -83,13 +83,14 @@ lexeme p = ws *> p <* ws
 
 pTreePath :: Parser (Path,Field)
 pTreePath = do
-    p <- pFieldName `sepBy` pDelimiter
-    f <- pField
-    return (p, f)
+    p <- (pFieldName `sepBy1` pDelimiter)
+    --f <- pField
+    jp <- optionMaybe ( string "->" >>  pJsonPath)
+    return (init p, (last p, jp))
 
 
 pFieldForest :: Parser [Tree SelectItem]
-pFieldForest = pFieldTree `sepBy` lexeme (char ',')
+pFieldForest = pFieldTree `sepBy1` lexeme (char ',')
 
 pFieldTree :: Parser (Tree SelectItem)
 pFieldTree =
@@ -106,18 +107,33 @@ pFieldTree =
             return (Node fld [])
     )
 
+pStar :: Parser String
+pStar = string "*" *> pure "*"
+
 pFieldName :: Parser String
-pFieldName =  string "*" *> pure "*"
-          <|> many (letter <|> digit <|> oneOf "_")
+pFieldName =  many1 (letter <|> digit <|> oneOf "_")
           <?> "field name (* or [a..z0..9_])"
+
+pJsonPath :: Parser [String]
+pJsonPath = pFieldName `sepBy1` (try (string "->>") <|> string "->")
+
 pField :: Parser Field
-pField = pFieldName `sepBy` (try (string "->>") <|> string "->")
+pField = lexeme $ do
+    f <- pFieldName
+    jp <- optionMaybe ( string "->" >>  pJsonPath)
+    return (f, jp)
 
 pSelect :: Parser SelectItem
-pSelect = lexeme $ do
-    n <- pField
-    v <- optionMaybe (string "::" >> many letter)
-    return (n, v)
+pSelect = lexeme $
+    try (
+        do
+            n <- pField
+            v <- optionMaybe (string "::" >> many letter)
+            return (n, v)
+        )
+    <|> do
+            s <- pStar
+            return ((s, Nothing), Nothing)
 
 pOperator :: Parser Operator
 pOperator =  try (string "eq" *> pure OpEQ)

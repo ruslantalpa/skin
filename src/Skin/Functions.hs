@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+-- {-# LANGUAGE OverloadedStrings #-}
 module Skin.Functions
 ( dbRequestToQuery
 , requestNodeToQuery
@@ -45,34 +45,27 @@ requestNodeToQuery schema allTables allColumns (RequestNode tblName flds fltrs) 
     Select <$> mainTable <*> select <*> joinTables <*> qwhere <*> rel
     where
         mainTable = findTable allTables schema tblName
-        select = mapM matchColumn flds --besides specific columns, we allow * here also
+        select = mapM toDbSelectItem flds --besides specific columns, we allow * here also
             where
-                matchColumn (c, cast) = (,,) <$> col <*> pure jp <*> pure cast
+                -- it's ok not to check that the table exists here, mainTable will do the checking
+                toDbSelectItem :: SelectItem -> Either String DbSelectItem
+                toDbSelectItem (("*", Nothing), Nothing) = Right $ ((Star{colSchema = schema, colTable = tblName}, Nothing), Nothing)
+                toDbSelectItem ((c,jp), cast) = (,) <$> dbFld <*> pure cast
                     where
-                        col = findColumn allColumns schema tblName $ head c
-                        jp = jsonPath c
-                -- toColumn = note ("no such column: "++tblName++".!!! name missing") . liftA2 (<|>) matchStar matchColumn
-                -- matchColumn = hush . findColumn allColumns schema tblName
-                -- matchStar = hush . isStar schema tblName -- it's ok not to check that the table exists here, mainTable will do the checking
-                --     where
-                --         isStar :: String -> String -> String -> Either String Column
-                --         isStar s t "*" = Right $ Star {colSchema = s, colTable = t}
-                --         isStar _ _ _   = Left "not a star"
+                        col = findColumn allColumns schema tblName c
+                        dbFld = (,) <$> col <*> pure jp
+
         qwhere = mapM (filterToCondition schema allColumns tblName) fltrs
         joinTables = pure []
         rel = pure Nothing
 
-jsonPath :: [String] -> Maybe [String]
-jsonPath (_:[]) = Nothing
-jsonPath (_:xs) = Just xs
-jsonPath _      = Nothing
 
 filterToCondition :: String -> [Column] -> String -> Filter -> Either String Condition
 filterToCondition schema allColumns table (Filter fld op val) =
     Condition <$> c <*> pure op <*> pure val
     where
-        c = (,) <$> column <*> pure (jsonPath fld)
-        column = findColumn allColumns schema table $ head fld
+        c = (,) <$> column <*> pure (snd fld)
+        column = findColumn allColumns schema table $ fst fld
 
 addRelations :: [Relation] -> Maybe DbRequest -> DbRequest -> Either String DbRequest
 addRelations allRelations parentNode node@(Node query@(Select {qMainTable=table}) forest) =
@@ -86,6 +79,7 @@ addRelations allRelations parentNode node@(Node query@(Select {qMainTable=table}
                 addRel q r = q{qRelation = Just r}
     where
         updatedForest = mapM (addRelations allRelations (Just node)) forest
+
 
 addJoinConditions :: [Column] -> Tree Query -> Either String DbRequest
 addJoinConditions allColumns (Node query@(Select{qRelation=relation}) forest) =
@@ -158,11 +152,11 @@ dbRequestToQuery (Node (Select mainTable columns tables conditions relation) for
         getQueryParts (Node (Select{qRelation=Nothing}) _) _ = undefined
         getQueryParts (Node (Select{qRelation=(Just (Relation {relType=_}))}) _) _ = undefined
 
-selectItemToStr :: (Column, Maybe [String], Maybe String) -> String
-selectItemToStr (c, jp, Nothing) = colToStr c <> jpToStr jp <> asJsonPath jp
-selectItemToStr (c, jp, Just cast ) = "CAST (" <> colToStr c <> jpToStr jp <> " AS " <> cast <> " )" <> asJsonPath jp
+selectItemToStr :: DbSelectItem -> String
+selectItemToStr ((c, jp), Nothing) = colToStr c <> jpToStr jp <> asJsonPath jp
+selectItemToStr ((c, jp), Just cast ) = "CAST (" <> colToStr c <> jpToStr jp <> " AS " <> cast <> " )" <> asJsonPath jp
 
-asJsonPath :: Maybe [String] -> String
+asJsonPath :: Maybe JsonPath -> String
 asJsonPath Nothing = ""
 asJsonPath (Just xx) = " AS " <> last xx
 
@@ -173,7 +167,7 @@ colToStr Star {colSchema=s, colTable=t} = "\"" <> s <> "\"." <> t <> ".*"
 tblToStr :: Table -> String
 tblToStr Table{tableSchema=s, tableName=n} = "\"" <> s <> "\"." <> n
 
-jpToStr :: Maybe [String] -> String
+jpToStr :: Maybe JsonPath -> String
 jpToStr (Just [x]) = "->>" <> "'" <> x <> "'"
 jpToStr (Just (x:xs)) = "->" <> "'" <> x <> "'" <> jpToStr ( Just xs )
 jpToStr _ = ""

@@ -17,6 +17,9 @@ module Skin.Types
 , Condition (..)
 , Query (..)
 , DbRequest
+, DbField
+, DbSelectItem
+, JsonPath
 --, RelationEntry
 ) where
 
@@ -28,18 +31,21 @@ data Value = VInt Int | VString String | VForeignKey Relation deriving (Show, Eq
 
 -- Request Types
 type ApiRequest = Tree RequestNode
-type Field = [String]
-type Cast = Maybe String
-type SelectItem = (Field, Cast)
+type FieldName = String
+type JsonPath = [String]
+type Field = (FieldName, Maybe JsonPath)
+type Cast = String
+type SelectItem = (Field, Maybe Cast)
 type Path = [String]
 data RequestNode = RequestNode {nodeName::String, fields::[SelectItem], filters::[Filter]} deriving (Show, Eq)
 data Filter = Filter {field::Field, operator::Operator, value::Value} deriving (Show, Eq)
 
 -- Db Types
---data ForeignKey = ForeignKey {fkTable::String, fkColumn::String} deriving (Show, Eq)
---data Column = Column {colTable:: String, colName::String, colFk::Maybe ForeignKey} deriving (Show, Eq)
---data Table = Table {tblName::String} deriving (Show)
-
+type DbField = (Column, Maybe JsonPath)
+type DbSelectItem = (DbField, Maybe Cast)
+data Condition = Condition {conColumn::DbField, conOperator::Operator, conValue::Value} deriving (Show)
+data Query = Select {qMainTable::Table, qSelect::[DbSelectItem], qJoinTables::[Table], qWhere::[Condition], qRelation::Maybe Relation} deriving (Show)
+type DbRequest = Tree Query
 data Column = Column {
   colSchema    :: String
 , colTable     :: String
@@ -66,8 +72,6 @@ data Table = Table {
 -- , fkCol :: String
 -- } deriving (Eq, Show)
 
---data Relation = Parent Column | Child Column | Many Column Column | Root deriving (Show, Eq)
---type RelationEntry = (String, String, String, Relation)
 data Relation = Relation {
   relSchema  :: String
 , relTable   :: String
@@ -76,8 +80,3 @@ data Relation = Relation {
 , relFColumn :: String
 , relType    :: String
 } deriving (Show, Eq)
-
-type JsonPath = [String]
-data Condition = Condition {conColumn::(Column, Maybe JsonPath), conOperator::Operator, conValue::Value} deriving (Show)
-data Query = Select {qMainTable::Table, qSelect::[(Column, Maybe JsonPath, Cast)], qJoinTables::[Table], qWhere::[Condition], qRelation::Maybe Relation} deriving (Show)
-type DbRequest = Tree Query
