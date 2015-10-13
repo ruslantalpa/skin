@@ -1,3 +1,5 @@
+EDIT: this work has since been merged into PostgREST by [this pull request](https://github.com/begriffs/postgrest/pull/295)
+
 **Proof of concept for an idea of extending the capabilities of PostgREST**
 
 
